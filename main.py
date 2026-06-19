@@ -1,131 +1,267 @@
 import os
 import random
+import time
+from threading import Thread
 import telebot
 from telebot import types
+from flask import Flask
 
-# БЕЗОПАСНОСТЬ: Сначала бот ищет токен в настройках сервера Render (переменная BOT_TOKEN).
-# Если не находит (например, при запуске в Pydroid 3), берет строку вручную.
-# ЗАМЕНИ 'ТВОЙ_ТОКЕН_ОТ_BOTFATHER' на свой настоящий токен для тестов в Pydroid.
+# --- 1. НАСТРОЙКА БОТА И ПЕРЕМЕННЫХ ---
 TOKEN = os.environ.get('BOT_TOKEN') or 'ТВОЙ_ТОКЕН_ОТ_BOTFATHER'
-
 bot = telebot.TeleBot(TOKEN)
 
-# Расширенная база персонажей из вселенной "Пацаны" (The Boys)
-CHARACTERS = [
-    # Легендарные (Шанс 5%)
-    {"name": "🇺🇸 Хоумлендер (Homelander)", "rarity": "Легендарный 👑", "chance": 5, "desc": "Лидер Семёрки. Самый могущественный и самый нестабильный супергерой на планете. Пьет молоко, лазер из глаз делает 'вжух'."},
-    {"name": "🕵️‍♂️ Билли Бутчер (Billy Butcher)", "rarity": "Легендарный 👑", "chance": 5, "desc": "Лидер Пацанов. Ненавидит суперов всей душой. Его главное суперсвойство — невероятная харизма и коронное слово на букву 'C'."},
-    {"name": "🛡️ Солдатик (Soldier Boy)", "rarity": "Легендарный 👑", "chance": 5, "desc": "Супергерой золотой эпохи и живое оружие. Обладает сокрушительным радиоактивным лучом, выжигающим Сыворотку V. Немного застрял в 1980-х."},
-    {"name": "⚡ Штормфронт (Stormfront)", "rarity": "Легендарный 👑", "chance": 5, "desc": "Повелительница плазмы и молний с очень мрачным прошлым из 1940-х. Мастер манипуляций в соцсетях и настоящая нацистка."},
+# Настройка кулдауна (3 часа = 10800 секунд)
+COOLDOWN_TIME = 10800
+COMPOUND_V_PRICE = 500
 
-    # Эпические (Шанс 15%)
-    {"name": "🗡️ Королева Мэйв (Queen Maeve)", "rarity": "Эпический 🔥", "chance": 15, "desc": "Вторая по силе в Семёрке. Долгое время топила цинизм в алкоголе, но внутри осталась настоящим героем. Готова пойти против Хоумлендера."},
-    {"name": "🦾 Кимико / Самка (Kimiko)", "rarity": "Эпический 🔥", "chance": 15, "desc": "Немая воительница из команды Пацанов. Обладает безумной регенерацией и способностью разрывать врагов голыми руками. Любит мюзиклы."},
-    {"name": "💥 Виктория Ньюман (Victoria Neuman)", "rarity": "Эпический 🔥", "chance": 15, "desc": "Политикет, конгрессвумен и скрытый супер. Взрывает головы силой мысли направо и налево. Буквально."},
-    {"name": "🥷 Черный Нуар (Black Noir)", "rarity": "Эпический 🗡️", "chance": 15, "desc": "Молчаливый и смертоносный инструмент Воут. Мастер боевых искусств и любитель воображаемых мягких игрушек."},
-    {"name": "⚡ Старлайт (Starlight)", "rarity": "Эпический ✨", "chance": 15, "desc": "Энни Дженьюари. Излучает чистый свет и пытается искренне помогать людям, несмотря на весь грязь и коммерцию Воут."},
-    {"name": "🐟 Подводный (The Deep)", "rarity": "Эпический 🐙", "chance": 15, "desc": "Повелитель морей и океанов (по его собственному мнению). Лучший друг дельфинов и осьминогов, абсолютный чемпион по кринжу."},
-
-    # Редкие (Шанс 30%)
-    {"name": "🏃‍♂️ Поезд-А (A-Train)", "rarity": "Редкий ⚡", "chance": 30, "desc": "Самый быстрый человек в мире. Главное — не стоять у него на пути, когда он подсел на дозу Сыворотки V."},
-    {"name": "🩺 Хьюи Кэмпбелл (Hughie)", "rarity": "Редкий 👕", "chance": 30, "desc": "Обычный парень в винтажной футболке, который случайно ввязался в войну с богами. Постоянно в чужой крови и экзистенциальном ужасе."},
-    {"name": "🇫🇷 Французик (Frenchie)", "rarity": "Редкий 🧪", "chance": 30, "desc": "Мастер на все руки: от химии до тактического взлома. Называет Кимико своей 'mon cœur' и постоянно спорит с Бутчером."},
-    {"name": "💼 Стэн Эдгар (Stan Edgar)", "rarity": "Редкий 💼", "chance": 30, "desc": "Бывший глава корпорации Vought. Обычный человек без суперсил, но единственный, чей ледяной взгляд и стальной голос заставляют Хоумлендера потеть от страха."},
-    {"name": "🦧 Райан (Ryan Butcher)", "rarity": "Редкий 👦", "chance": 30, "desc": "Сын Хоумлендера и Бекки Бутчер. Обладает скрытым потенциалом стать сильнее отца, но пока просто пытается разобраться, на чьей он стороне."},
-
-    # Обычные (Шанс 50%)
-    {"name": "🥛 Молоко Матери (Mother's Milk)", "rarity": "Обычный 🧼", "chance": 50, "desc": "Голос разума в команде Бутчера. Страдает ОКР, фанатеет по рэпу старой школы, ценит порядок и чистоту."},
-    {"name": "🏢 Тодд (Todd)", "rarity": "Обычный 🤡", "chance": 50, "desc": "Муж бывшей жены ММ. Яростный фанат Хоумлендера, готовый оправдать любое военное преступление своего кумира. Максимально раздражающий тип."},
-    {"name": "🏹 Прозрачный (Translucent)", "rarity": "Обычный 💎", "chance": 50, "desc": "Супергерой с невидимой алмазной кожей. Любил шпионить в туалетах. Запомнился всем тем, *как именно* Пацаны смогли его победить."},
-    {"name": "🔥 Факел (Lamplighter)", "rarity": "Обычный 🕯️", "chance": 50, "desc": "Бывший член Семёрки, управляющий огнем. Работает охранником в секретной психбольнице Воут."}
-]
-
-user_collections = {}
-
-def pull_card():
-    population = CHARACTERS
-    weights = [char["chance"] for char in population]
-    chosen = random.choices(population, weights=weights, k=1)[0]
-    return chosen
-
-# --- ОБРАБОТЧИКИ КОМАНД ---
-
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    welcome_text = (
-        "👊 **Добро пожаловать во вселенную «Пацанов»!** 👊\n\n"
-        "Здесь заправляет безжалостная корпорация Vought. "
-        "Готов собрать свою ультимативную команду из героев Семёрки или Пацанов Бутчера?\n\n"
-        "Жми кнопку ниже, чтобы применить дозу Compound V!"
-    )
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(types.KeyboardButton("🃏 Испытать удачу (Vought)"), types.KeyboardButton("💼 Моя база суперов"))
-    bot.send_message(message.chat.id, welcome_text, reply_markup=markup, parse_mode="Markdown")
-
-@bot.message_handler(func=lambda message: message.text == "🃏 Испытать удачу (Vought)")
-def draw_card_handler(message):
-    chat_id = message.chat.id
-    character = pull_card()
-    name = character["name"]
-    rarity = character["rarity"]
-    desc = character["desc"]
+# Расширенная база данных персонажей из «Пацанов»
+CHARACTERS = {
+    # ⭐ Легендарные
+    "Homelander": {"rarity": "⭐ Легендарный", "price": 500},
+    "Soldier Boy": {"rarity": "⭐ Легендарный", "price": 500},
+    "William Butcher": {"rarity": "⭐ Легендарный", "price": 500},
     
-    if chat_id not in user_collections:
-        user_collections[chat_id] = {}
-        
-    if name in user_collections[chat_id]:
-        user_collections[chat_id][name] += 1
-        dup_text = f"_(У тебя в запасе их уже: {user_collections[chat_id][name]})_"
-    else:
-        user_collections[chat_id][name] = 1
-        dup_text = "🔥 *Новый оперативник зачислен в твой отряд!*"
+    # ✨ Эпические
+    "Starlight": {"rarity": "✨ Эпический", "price": 300},
+    "Queen Maeve": {"rarity": "✨ Эпический", "price": 300},
+    "Black Noir": {"rarity": "✨ Эпический", "price": 300},
+    "Victoria Neuman": {"rarity": "✨ Эпический", "price": 300},
+    
+    # 🔹 Редкие
+    "A-Train": {"rarity": "🔹 Редкий", "price": 150},
+    "Kimiko Miyashiro": {"rarity": "🔹 Редкий", "price": 150},
+    "Mother's Milk": {"rarity": "🔹 Редкий", "price": 150},
+    "Stormfront": {"rarity": "🔹 Редкий", "price": 150},
+    "Translucent": {"rarity": "🔹 Редкий", "price": 150},
+    
+    # 🟢 Обычные
+    "The Deep": {"rarity": "🟢 Обычный", "price": 50},
+    "Hughie Campbell": {"rarity": "🟢 Обычный", "price": 50},
+    "Frenchie": {"rarity": "🟢 Обычный", "price": 50},
+    "Todd": {"rarity": "🟢 Обычный", "price": 50}
+}
 
+# Внутренняя база данных игроков (в памяти сервера)
+players_data = {}
+
+def get_or_create_player(user_id):
+    if user_id not in players_data:
+        players_data[user_id] = {
+            "vbucks": 0,
+            "inventory": [],
+            "compound_v": 0,    
+            "last_gacha_time": 0  
+        }
+    return players_data[user_id]
+
+
+# --- 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ГАЧИ ---
+def give_gacha_reward(message, player):
+    """Внутренняя функция для выдачи персонажа"""
+    char_name = random.choice(list(CHARACTERS.keys()))
+    char_info = CHARACTERS[char_name]
+    
+    player["inventory"].append(char_name)
+    
     response = (
-        f"🚨 **Сканирование Vought обнаружило объект!** 🚨\n"
-        f"----------------------------------------\n"
-        f"👤 **Имя:** {name}\n"
-        f"💎 **Ранг:** {rarity}\n"
-        f"📜 **Досье:** {desc}\n"
-        f"----------------------------------------\n"
-        f"{dup_text}"
+        f"🎰 **Воугт запускает конвейер!**\n\n"
+        f"🎉 Тебе выпадает персонаж: **{char_name}**\n"
+        f"💎 Редкость: `{char_info['rarity']}`\n"
+        f"💰 Цена продажи: {char_info['price']} V-Bucks\n\n"
+        f"🃏 Карточка добавлена в твой профиль!"
     )
-    bot.send_message(chat_id, response, parse_mode="Markdown")
+    bot.send_message(message.chat.id, response, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda message: message.text == "💼 Моя база суперов")
-def show_collection(message):
-    chat_id = message.chat.id
-    collection = user_collections.get(chat_id, {})
+
+def send_profile_message(chat_id, player):
+    """Внутренняя функция для сборки и отправки профиля"""
+    vbucks = player["vbucks"]
+    comp_v = player.get("compound_v", 0)
     
-    if not collection:
-        bot.send_message(chat_id, "Твой отряд пуст. Примени сыворотку V! 🃏")
-        return
+    if player["inventory"]:
+        counts = {}
+        for card in player["inventory"]:
+            counts[card] = counts.get(card, 0) + 1
+        cards_text = "\n".join([f"• {name} x{count}" for name, count in counts.items()])
+    else:
+        cards_text = "У тебя пока нет карточек."
         
-    text = "💼 **Досье твоего личного отряда:**\n\n"
-    total_unique = len(CHARACTERS)
-    user_unique = len(collection)
-    
-    text += f"📊 Завербовано персонажей: {user_unique} из {total_unique}\n"
-    text += "----------------------------------------\n"
-    
-    for char_name, count in sorted(collection.items()):
-        rarity = next((c["rarity"] for c in CHARACTERS if c["name"] == char_name), "")
-        text += f"• {char_name} [{rarity}] — x{count}\n"
-        
+    text = (
+        f"👤 **Личное дело сотрудника Vought**\n\n"
+        f"💰 **Баланс:** {vbucks} V-Bucks\n"
+        f"🧪 **Запасы Препарата V:** {comp_v} шт.\n\n"
+        f"🃏 **Твоя коллекция:**\n{cards_text}\n\n"
+        f"💡 *Чтобы продать карту, напиши:* `/sell Имя`"
+    )
     bot.send_message(chat_id, text, parse_mode="Markdown")
 
-if __name__ == '__main__':
-    print("Бот запущен...")
-    bot.infinity_polling()
 
-# --- КОСТЫЛЬ ДЛЯ БЕСПЛАТНОГО ХОСТИНГА RENDER ---
-from flask import Flask
-from threading import Thread
+# --- 3. ОБРАБОТКА КОМАНД И КНОПОК ---
 
+# Главное меню при старте
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    get_or_create_player(message.from_user.id)
+    
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    btn_gacha = types.KeyboardButton("🎰 Крутить Гачу")
+    btn_profile = types.KeyboardButton("👤 Мой Профиль Vought")
+    btn_shop = types.KeyboardButton("🧪 Купить Препарат V (500 VB)")
+    markup.add(btn_gacha, btn_profile)
+    markup.add(btn_shop)
+    
+    text = (
+        "👋 Приветствуем в Vought International!\n\n"
+        "Здесь ты можешь выбивать карточки суперов и членов отряда «Пацанов», "
+        "копить их или продавать за V-Bucks корпорации!\n\n"
+        "Используй кнопки ниже для управления 👇"
+    )
+    bot.send_message(message.chat.id, text, reply_markup=markup)
+
+
+# Команда просмотра профиля текстом (/profile)
+@bot.message_handler(commands=['profile'])
+def command_profile(message):
+    player = get_or_create_player(message.from_user.id)
+    send_profile_message(message.chat.id, player)
+
+
+# Обработка текстовых кнопок меню
+@bot.message_handler(content_types=['text'])
+def handle_menu(message):
+    player = get_or_create_player(message.from_user.id)
+    
+    # КРУТИТЬ ГАЧУ
+    if message.text == "🎰 Крутить Гачу":
+        current_time = time.time()
+        time_passed = current_time - player["last_gacha_time"]
+        
+        # Проверяем кулдаун
+        if time_passed < COOLDOWN_TIME:
+            time_left = int(COOLDOWN_TIME - time_passed)
+            hours = time_left // 3600
+            minutes = (time_left % 3600) // 60
+            time_text = f"**{hours} ч. {minutes} мин.**" if hours > 0 else f"**{minutes} мин.**"
+            
+            # Предлагаем заюзать Препарат V, если он есть
+            if player["compound_v"] > 0:
+                inline_markup = types.InlineKeyboardMarkup()
+                btn_use_v = types.InlineKeyboardButton("🧪 Использовать Препарат V", callback_data="use_v")
+                inline_markup.add(btn_use_v)
+                
+                bot.send_message(
+                    message.chat.id, 
+                    f"⏳ **Конвейер перегружен!** Ожидание: {time_text}.\n\n"
+                    f"💡 Но у тебя есть **Препарат V ({player['compound_v']} шт.)**! Уколись, чтобы обнулить кулдаун прямо сейчас 👇",
+                    reply_markup=inline_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                bot.send_message(
+                    message.chat.id, 
+                    f"⏳ **Конвейер Vought перегружен!**\nСледующая бесплатная крутка будет доступна через {time_text}.\n"
+                    f"💡 Ты можешь купить Препарат V в магазине, чтобы не ждать!",
+                    parse_mode="Markdown"
+                )
+            return
+            
+        # Обычная бесплатная крутка
+        player["last_gacha_time"] = current_time
+        give_gacha_reward(message, player)
+        
+    # НАЖАТИЕ КНОПКИ ПРОФИЛЯ
+    elif message.text == "👤 Мой Профиль Vought":
+        send_profile_message(message.chat.id, player)
+
+    # МАГАЗИН: ПОКУПКА ПРЕПАРАТА V
+    elif message.text == "🧪 Купить Препарат V (500 VB)":
+        if player["vbucks"] < COMPOUND_V_PRICE:
+            bot.send_message(
+                message.chat.id, 
+                f"❌ **Недостаточно средств!**\nПрепарат V стоит **{COMPOUND_V_PRICE} V-Bucks**.\n"
+                f"Твой текущий баланс: {player['vbucks']} V-Bucks. Продай ненужных суперов!"
+            )
+            return
+            
+        player["vbucks"] -= COMPOUND_V_PRICE
+        player["compound_v"] = player.get("compound_v", 0) + 1
+        
+        bot.send_message(
+            message.chat.id,
+            f"🧪 **Сделка под покровительством Хоумлендера!**\n"
+            f"Ты успешно приобрёл 1 дозу Препарата V за **{COMPOUND_V_PRICE} V-Bucks**.\n"
+            f"Теперь у тебя: {player['compound_v']} шт.\n"
+            f"Баланс: {player['vbucks']} V-Bucks."
+        )
+
+
+# --- 4. ОБРАБОТКА НАЖАТИЯ ИНЛАЙН КНОПКИ (ИСПОЛЬЗОВАНИЕ ПРЕПАРАТА) ---
+@bot.callback_query_handler(func=lambda call: call.data == "use_v")
+def callback_use_v(call):
+    player = get_or_create_player(call.from_user.id)
+    
+    if player.get("compound_v", 0) <= 0:
+        bot.answer_callback_query(call.id, "❌ У тебя закончился Препарат V!")
+        return
+        
+    player["compound_v"] -= 1
+    player["last_gacha_time"] = time.time()
+    
+    bot.answer_callback_query(call.id, "🧪 Препарат V введён! Силы восстановлены!")
+    bot.edit_message_text(
+        chat_id=call.message.chat.id, 
+        message_id=call.message.message_id, 
+        text="💉 *Эффект Препарата V подействовал! Кулдаун сброшен!*", 
+        parse_mode="Markdown"
+    )
+    
+    give_gacha_reward(call.message, player)
+
+
+# Команда продажи карт
+@bot.message_handler(commands=['sell'])
+def sell_character(message):
+    player = get_or_create_player(message.from_user.id)
+    
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "❌ Укажи имя. Пример: `/sell A-Train`", parse_mode="Markdown")
+        return
+        
+    char_name = args[1].strip()
+    
+    real_name = None
+    for key in CHARACTERS.keys():
+        if key.lower() == char_name.lower():
+            real_name = key
+            break
+            
+    if not real_name:
+        bot.send_message(message.chat.id, "❌ Такого персонажа нет в базе данных Vought.")
+        return
+        
+    if real_name not in player["inventory"]:
+        bot.send_message(message.chat.id, f"❌ У тебя в инвентаре нет карточки {real_name}.")
+        return
+        
+    price = CHARACTERS[real_name]["price"]
+    player["inventory"].remove(real_name) 
+    player["vbucks"] += price             
+    
+    bot.send_message(
+        message.chat.id, 
+        f"💵 Успешная сделка! Ты продал {real_name} за **{price} V-Bucks**.\n"
+        f"Твой текущий баланс: **{player['vbucks']} V-Bucks**.",
+        parse_mode="Markdown"
+    )
+
+
+# --- 5. КОСТЫЛЬ ДЛЯ БЕСПЛАТНОГО ХОСТИНГА RENDER (FLASK WEB-SERVER) ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Бот Пацанов активен и работает!"
+    return "Бот Пацанов активен, веб-сервер симулирует жизнь!"
 
 def run():
     app.run(host='0.0.0.0', port=8080)
@@ -134,7 +270,9 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
+
+# --- 6. ЗАПУСК ВСЕЙ СИСТЕМЫ ---
 if __name__ == '__main__':
-    keep_alive() # Запускает мини-веб-сервер в фоне
-    print("Бот запущен...")
+    keep_alive() 
+    print("Робот Vought успешно запущен в облаке...")
     bot.infinity_polling()

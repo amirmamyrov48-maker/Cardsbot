@@ -1,6 +1,7 @@
 import os
 import random
 import json
+import time
 from threading import Thread
 from telebot import types
 import telebot
@@ -12,8 +13,7 @@ bot = telebot.TeleBot(TOKEN)
 DB_FILE = "players_backup.json"
 players_data = {}
 
-# --- БАЗА ПЕРСОНАЖЕЙ (50 + Секретный) ---
-# НИКАКИХ ССЫЛОК ИЛИ КАРТИНОК В БАЗЕ НЕТ
+# --- ПОЛНАЯ БАЗА ПЕРСОНАЖЕЙ ---
 CHARACTERS = {
     "Неуязвимый": {"rarity": "🔮 Секретный", "price": 9999},
     "Homelander": {"rarity": "⭐ Легендарный", "price": 500},
@@ -68,12 +68,20 @@ CHARACTERS = {
     "Black Noir II": {"rarity": "⭐ Легендарный", "price": 500}
 }
 
+SHOP_ITEMS = {
+    "V_Serum": {"name": "🧪 Сыворотка V", "price": 500},
+    "Starlight_Suit": {"name": "👗 Костюм Старлайт", "price": 600},
+    "Compound_V_Inject": {"name": "💉 Инъектор с Препаратом V", "price": 750}
+}
+
 # --- ФУНКЦИИ ---
 def load_data():
     global players_data
     if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            players_data = {int(k): v for k, v in json.load(f).items()}
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                players_data = {int(k): v for k, v in json.load(f).items()}
+        except: players_data = {}
 
 def save_data():
     with open(DB_FILE, "w", encoding="utf-8") as f:
@@ -81,36 +89,60 @@ def save_data():
 
 def get_player(user_id):
     if user_id not in players_data:
-        players_data[user_id] = {"vbucks": 100, "inventory": []}
+        players_data[user_id] = {"vbucks": 1000, "inventory": [], "items": [], "last_bonus": 0, "last_gacha": 0}
     return players_data[user_id]
 
 # --- ОБРАБОТЧИКИ ---
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("🎰 Крутить Гачу", "👤 Мой Профиль")
-    bot.send_message(message.chat.id, "🏢 Добро пожаловать в Vought!", reply_markup=markup)
+    markup.add("🎰 Крутить Гачу", "🏪 Магазин", "🎁 Ежедневка")
+    markup.add("👤 Мой Профиль")
+    bot.send_message(message.chat.id, "🏢 Vought International: полный список персонажей загружен!", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: True)
 def handle_text(message):
     player = get_player(message.from_user.id)
     
     if message.text == "🎰 Крутить Гачу":
-        if random.random() < 0.01:
-            char_name = "Неуязвимый"
+        if time.time() - player["last_gacha"] >= 7200:
+            char_name = random.choice(list(CHARACTERS.keys()))
+            player["inventory"].append(char_name)
+            player["last_gacha"] = time.time()
+            save_data()
+            bot.send_message(message.chat.id, f"🎉 Тебе выпал: **{char_name}**", parse_mode="Markdown")
         else:
-            char_name = random.choice([name for name in CHARACTERS.keys() if name != "Неуязвимый"])
-            
-        player["inventory"].append(char_name)
-        save_data()
-        # Только текст!
-        bot.send_message(message.chat.id, f"🎉 Тебе выпал: **{char_name}** ({CHARACTERS[char_name]['rarity']})")
-    
-    elif message.text == "👤 Мой Профиль":
-        # Только текст!
-        bot.send_message(message.chat.id, f"💰 VB: {player['vbucks']}\n🃏 Карт в коллекции: {len(player['inventory'])}")
+            bot.send_message(message.chat.id, "⏳ Конвейер на перезарядке.")
 
-# --- ЗАПУСК ---
+    elif message.text == "🏪 Магазин":
+        markup = types.InlineKeyboardMarkup()
+        for i_id, info in SHOP_ITEMS.items():
+            markup.add(types.InlineKeyboardButton(f"{info['name']} ({info['price']} VB)", callback_data=f"buy_{i_id}"))
+        bot.send_message(message.chat.id, "🏪 Магазин товаров:", reply_markup=markup)
+
+    elif message.text == "👤 Мой Профиль":
+        markup = types.InlineKeyboardMarkup()
+        if "👗 Костюм Старлайт" in player["items"]:
+            markup.add(types.InlineKeyboardButton("👃 Понюхать костюм", callback_data="sniff_suit"))
+        bot.send_message(message.chat.id, f"💰 Баланс: {player['vbucks']} VB\n🎒 Предметы: {', '.join(player['items']) if player['items'] else 'Пусто'}", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
+def buy_item(call):
+    player = get_player(call.from_user.id)
+    i_id = call.data.split("_")[1]
+    item = SHOP_ITEMS[i_id]
+    if player["vbucks"] >= item["price"]:
+        player["vbucks"] -= item["price"]
+        player["items"].append(item["name"])
+        save_data()
+        bot.answer_callback_query(call.id, "✅ Куплено!")
+    else:
+        bot.answer_callback_query(call.id, "❌ Недостаточно средств!")
+
+@bot.callback_query_handler(func=lambda call: call.data == "sniff_suit")
+def sniff_suit(call):
+    bot.answer_callback_query(call.id, "👃 Пахнет героиней и справедливостью!")
+
 if __name__ == '__main__':
     load_data()
     Thread(target=lambda: Flask('').run(host='0.0.0.0', port=8080)).start()

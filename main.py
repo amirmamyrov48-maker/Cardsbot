@@ -13,7 +13,7 @@ bot = telebot.TeleBot(TOKEN)
 DB_FILE = "players_backup.json"
 players_data = {}
 
-# --- ПОЛНАЯ БАЗА ПЕРСОНАЖЕЙ ---
+# --- БАЗЫ ---
 CHARACTERS = {
     "Неуязвимый": {"rarity": "🔮 Секретный", "price": 9999},
     "Homelander": {"rarity": "⭐ Легендарный", "price": 500},
@@ -68,10 +68,11 @@ CHARACTERS = {
     "Black Noir II": {"rarity": "⭐ Легендарный", "price": 500}
 }
 
-SHOP_ITEMS = {
-    "V_Serum": {"name": "🧪 Сыворотка V", "price": 500},
-    "Starlight_Suit": {"name": "👗 Костюм Старлайт", "price": 600},
-    "Compound_V_Inject": {"name": "💉 Инъектор с Препаратом V", "price": 750}
+OUTFITS = {
+    "🎀 Костюм горничной": {"rarity": "🔮 Мифический", "buff": "Удача +10%, кулдаун -45м, скидка 15%"},
+    "👗 Костюм Старлайт": {"rarity": "✨ Эпический", "buff": "Снижает кулдаун гачи на 1 час"},
+    "🧥 Плащ Бутчера": {"rarity": "🔹 Редкий", "buff": "Бонус к ежедневке +100 VB"},
+    "🧢 Кепка Vought": {"rarity": "🟢 Обычный", "buff": "Стиль +1"}
 }
 
 # --- ФУНКЦИИ ---
@@ -89,59 +90,71 @@ def save_data():
 
 def get_player(user_id):
     if user_id not in players_data:
-        players_data[user_id] = {"vbucks": 1000, "inventory": [], "items": [], "last_bonus": 0, "last_gacha": 0}
+        players_data[user_id] = {"vbucks": 1000, "inventory": [], "outfits": [], "equipped": None, "last_gacha": 0, "last_bonus": 0}
     return players_data[user_id]
 
 # --- ОБРАБОТЧИКИ ---
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("🎰 Крутить Гачу", "🏪 Магазин", "🎁 Ежедневка")
+    markup.add("🎰 Гача героев", "👗 Гача костюмов", "🎁 Ежедневка")
     markup.add("👤 Мой Профиль")
-    bot.send_message(message.chat.id, "🏢 Vought International: полный список персонажей загружен!", reply_markup=markup)
+    bot.send_message(message.chat.id, "🏢 Vought International: система инициализирована.", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: True)
 def handle_text(message):
     player = get_player(message.from_user.id)
     
-    if message.text == "🎰 Крутить Гачу":
-        if time.time() - player["last_gacha"] >= 7200:
+    if message.text == "🎰 Гача героев":
+        # Логика кулдауна с учетом костюмов
+        cooldown = 10800
+        if player["equipped"] == "👗 Костюм Старлайт": cooldown = 7200
+        elif player["equipped"] == "🎀 Костюм горничной": cooldown = 8100
+        
+        if time.time() - player["last_gacha"] >= cooldown:
             char_name = random.choice(list(CHARACTERS.keys()))
+            char_info = CHARACTERS[char_name]
             player["inventory"].append(char_name)
             player["last_gacha"] = time.time()
             save_data()
-            bot.send_message(message.chat.id, f"🎉 Тебе выпал: **{char_name}**", parse_mode="Markdown")
+            bot.send_message(message.chat.id, f"✅ Получен: **{char_name}** ({char_info['rarity']})")
         else:
             bot.send_message(message.chat.id, "⏳ Конвейер на перезарядке.")
 
-    elif message.text == "🏪 Магазин":
-        markup = types.InlineKeyboardMarkup()
-        for i_id, info in SHOP_ITEMS.items():
-            markup.add(types.InlineKeyboardButton(f"{info['name']} ({info['price']} VB)", callback_data=f"buy_{i_id}"))
-        bot.send_message(message.chat.id, "🏪 Магазин товаров:", reply_markup=markup)
+    elif message.text == "👗 Гача костюмов":
+        if player["vbucks"] >= 300:
+            player["vbucks"] -= 300
+            rand = random.random()
+            if rand < 0.05: outfit = "🎀 Костюм горничной"
+            elif rand < 0.25: outfit = "👗 Костюм Старлайт"
+            elif rand < 0.55: outfit = "🧥 Плащ Бутчера"
+            else: outfit = "🧢 Кепка Vought"
+            player["outfits"].append(outfit)
+            save_data()
+            bot.send_message(message.chat.id, f"👗 Выпал костюм: **{outfit}**")
+        else: bot.send_message(message.chat.id, "❌ Недостаточно средств.")
+
+    elif message.text == "🎁 Ежедневка":
+        if time.time() - player["last_bonus"] >= 86400:
+            bonus = 350 if player["equipped"] == "🧥 Плащ Бутчера" else 250
+            player["vbucks"] += bonus
+            player["last_bonus"] = time.time()
+            save_data()
+            bot.send_message(message.chat.id, f"✅ Бонус: {bonus} VB!")
+        else: bot.send_message(message.chat.id, "❌ Рано.")
 
     elif message.text == "👤 Мой Профиль":
-        markup = types.InlineKeyboardMarkup()
-        if "👗 Костюм Старлайт" in player["items"]:
-            markup.add(types.InlineKeyboardButton("👃 Понюхать костюм", callback_data="sniff_suit"))
-        bot.send_message(message.chat.id, f"💰 Баланс: {player['vbucks']} VB\n🎒 Предметы: {', '.join(player['items']) if player['items'] else 'Пусто'}", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
-def buy_item(call):
-    player = get_player(call.from_user.id)
-    i_id = call.data.split("_")[1]
-    item = SHOP_ITEMS[i_id]
-    if player["vbucks"] >= item["price"]:
-        player["vbucks"] -= item["price"]
-        player["items"].append(item["name"])
-        save_data()
-        bot.answer_callback_query(call.id, "✅ Куплено!")
-    else:
-        bot.answer_callback_query(call.id, "❌ Недостаточно средств!")
-
-@bot.callback_query_handler(func=lambda call: call.data == "sniff_suit")
-def sniff_suit(call):
-    bot.answer_callback_query(call.id, "👃 Пахнет героиней и справедливостью!")
+        rarity_counts = {}
+        for char in player["inventory"]:
+            r = CHARACTERS[char]["rarity"]
+            rarity_counts[r] = rarity_counts.get(r, 0) + 1
+        
+        text = (f"👤 **ДОСЬЕ СОТРУДНИКА**\n"
+                f"💰 Баланс: {player['vbucks']} VB\n"
+                f"👗 Надет: {player['equipped'] or 'Нет'}\n"
+                f"📊 Героев: {len(player['inventory'])}\n"
+                f"🎒 Костюмы: {', '.join(player['outfits'])}")
+        bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 if __name__ == '__main__':
     load_data()

@@ -13,18 +13,15 @@ bot = telebot.TeleBot(TOKEN)
 DB_FILE = "players_backup.json"
 players_data = {}
 
-# --- БАЗЫ ДАННЫХ ---
+# --- ПОЛНАЯ БАЗА ---
 CHARACTERS = {
-    "Неуязвимый": {"rarity": "🔮 Секретный", "price": 9999},
-    "Homelander": {"rarity": "⭐ Легендарный", "price": 500},
-    "Soldier Boy": {"rarity": "⭐ Легендарный", "price": 500},
-    "Starlight": {"rarity": "✨ Эпический", "price": 300},
-    "A-Train": {"rarity": "🔹 Редкий", "price": 150},
-    "Black Noir": {"rarity": "✨ Эпический", "price": 300},
-    "William Butcher": {"rarity": "⭐ Легендарный", "price": 500},
-    "Stormfront": {"rarity": "⭐ Легендарный", "price": 500},
-    "The Deep": {"rarity": "🟢 Обычный", "price": 50}
-    # (добавьте остальных героев по аналогии)
+    "Неуязвимый": {"rarity": "🔮 Секретный", "price": 9999}, "Homelander": {"rarity": "⭐ Легендарный", "price": 500},
+    "Soldier Boy": {"rarity": "⭐ Легендарный", "price": 500}, "Starlight": {"rarity": "✨ Эпический", "price": 300},
+    "A-Train": {"rarity": "🔹 Редкий", "price": 150}, "The Deep": {"rarity": "🟢 Обычный", "price": 50},
+    "Black Noir": {"rarity": "✨ Эпический", "price": 300}, "Queen Maeve": {"rarity": "✨ Эпический", "price": 300},
+    "William Butcher": {"rarity": "⭐ Легендарный", "price": 500}, "Frenchie": {"rarity": "🔹 Редкий", "price": 150},
+    "Kimiko": {"rarity": "🔹 Редкий", "price": 150}, "Hughie": {"rarity": "🟢 Обычный", "price": 50},
+    "Mother's Milk": {"rarity": "🔹 Редкий", "price": 150}, "Stormfront": {"rarity": "⭐ Легендарный", "price": 500}
 }
 
 OUTFITS = {
@@ -34,7 +31,6 @@ OUTFITS = {
     "🧢 Кепка Vought": {"rarity": "🟢 Обычный", "buff": "Стиль +1"}
 }
 
-# --- ФУНКЦИИ ---
 def load_data():
     global players_data
     if os.path.exists(DB_FILE):
@@ -53,13 +49,12 @@ def get_player(user_id):
         }
     return players_data[user_id]
 
-# --- ОБРАБОТЧИКИ ---
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("🎰 Гача героев", "👗 Гача костюмов", "🎁 Ежедневка")
     markup.add("👤 Мой Профиль")
-    bot.send_message(message.chat.id, "🏢 **Vought International: Система активна.**\nДобро пожаловать, сотрудник.", parse_mode="Markdown", reply_markup=markup)
+    bot.send_message(message.chat.id, "🏢 **Vought International: Система активна.**", parse_mode="Markdown", reply_markup=markup)
 
 @bot.message_handler(commands=['equip'])
 def equip(message):
@@ -76,40 +71,56 @@ def equip(message):
 def handle_text(message):
     player = get_player(message.from_user.id)
     
-    if message.text == "🎰 Гача героев":
+    # 1. ЕЖЕДНЕВКА (исправлено)
+    if message.text == "🎁 Ежедневка":
+        if time.time() - player["last_bonus"] >= 86400:
+            bonus = 350 if player["equipped"] == "🧥 Плащ Бутчера" else 250
+            player["vbucks"] += bonus
+            player["last_bonus"] = time.time()
+            save_data()
+            bot.send_message(message.chat.id, f"✅ **Бонус получен:** {bonus} V-Bucks!")
+        else:
+            remaining = 86400 - (time.time() - player["last_bonus"])
+            h = int(remaining // 3600)
+            bot.send_message(message.chat.id, f"❌ **Рано!** Возвращайтесь через {h} ч.")
+
+    # 2. ГАЧА ГЕРОЕВ
+    elif message.text == "🎰 Гача героев":
         cooldown = 7200 if player["equipped"] == "👗 Костюм Старлайт" else 10800
+        if player["equipped"] == "🎀 Костюм горничной": cooldown -= 2700
+        
         if time.time() - player["last_gacha"] >= cooldown:
             char = random.choice(list(CHARACTERS.keys()))
             player["inventory"].append(char)
             player["last_gacha"] = time.time()
             save_data()
-            bot.send_message(message.chat.id, f"🎰 **Vought запускает конвейер!**\n\n🎉 Тебе выпадает: **{char}**\n💎 Редкость: `{CHARACTERS[char]['rarity']}`", parse_mode="Markdown")
+            bot.send_message(message.chat.id, f"🎰 **Vought запускает конвейер!**\n\n🎉 Выпал: **{char}**", parse_mode="Markdown")
         else:
-            bot.send_message(message.chat.id, "⏳ **Конвейер Vought перегружен!**\nПопробуйте позже.", parse_mode="Markdown")
+            bot.send_message(message.chat.id, "⏳ **Конвейер Vought перегружен!**")
 
+    # 3. ГАЧА КОСТЮМОВ
     elif message.text == "👗 Гача костюмов":
+        cost = int(300 * 0.85) if player["equipped"] == "🎀 Костюм горничной" else 300
         if time.time() - player.get("last_outfit_gacha", 0) >= 7200:
-            if player["vbucks"] >= 300:
-                player["vbucks"] -= 300
+            if player["vbucks"] >= cost:
+                player["vbucks"] -= cost
                 player["last_outfit_gacha"] = time.time()
                 outfit = random.choice(list(OUTFITS.keys()))
                 player["outfits"].append(outfit)
                 save_data()
                 bot.send_message(message.chat.id, f"👗 **Vought Fashion:**\nВы получили: **{outfit}**!", parse_mode="Markdown")
             else:
-                bot.send_message(message.chat.id, "❌ **Недостаточно средств!**")
+                bot.send_message(message.chat.id, f"❌ **Недостаточно средств!** Нужно {cost} VB.")
         else:
-            bot.send_message(message.chat.id, "⏳ **Конвейер моды на техобслуживании!**", parse_mode="Markdown")
+            bot.send_message(message.chat.id, "⏳ **Конвейер моды на техобслуживании!**")
 
+    # 4. ПРОФИЛЬ
     elif message.text == "👤 Мой Профиль":
         inv = "\n".join([f"• {c}" for c in set(player["inventory"])])
-        text = (
-            f"👤 **Личное дело сотрудника Vought**\n\n"
-            f"💰 Баланс: `{player['vbucks']} V-Bucks`\n"
-            f"👗 Надет: `{player['equipped'] or 'Нет'}`\n\n"
-            f"🃏 **Коллекция:**\n{inv if inv else 'Пусто'}\n"
-            f"💡 *Чтобы надеть костюм: /equip Название*"
-        )
+        text = (f"👤 **Личное дело сотрудника Vought**\n\n"
+                f"💰 Баланс: `{player['vbucks']} V-Bucks`\n"
+                f"👗 Надет: `{player['equipped'] or 'Нет'}`\n\n"
+                f"🃏 **Коллекция:**\n{inv if inv else 'Пусто'}")
         bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 if __name__ == '__main__':
